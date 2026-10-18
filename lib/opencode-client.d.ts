@@ -1,34 +1,79 @@
-import type { OpenCodeModel } from './types.js';
-export interface StreamEvent {
-    type: 'step_start' | 'thinking_start' | 'thinking_delta' | 'thinking_end' | 'text_start' | 'text_delta' | 'text_end' | 'step_end' | 'error';
-    delta?: string;
-    error?: {
-        type?: string;
-        message?: string;
-        status?: number;
-    };
+/** Known free tier models provided by OpenCode Desktop */
+export declare const KNOWN_FREE_MODELS: readonly string[];
+/**
+ * Checks whether a given model ID represents a free model in OpenCode Desktop.
+ * Matches `*-free`, `big-pickle`, provider `opencode/`, or known free model names.
+ */
+export declare function isFreeModel(modelId: string): boolean;
+/**
+ * Detects the OpenCode binary across Windows, macOS, and Linux.
+ */
+export declare function findOpenCodeBinary(customPath?: string): string;
+/**
+ * Parses stdout from `opencode models` into an array of model IDs.
+ */
+export declare function parseModelList(stdout: string): string[];
+export type OpenCodeStreamEvent = {
+    type: 'thinking_delta';
+    text: string;
+    raw?: unknown;
+} | {
+    type: 'text_delta';
+    text: string;
+    raw?: unknown;
+} | {
+    type: 'step_start';
+    raw?: unknown;
+} | {
+    type: 'step_end';
+    raw?: unknown;
+} | {
+    type: 'error';
+    message: string;
+    status?: number;
+    code?: string;
+    isRateLimit: boolean;
+    raw?: unknown;
+} | {
+    type: 'other';
+    raw: unknown;
+};
+/**
+ * Parses a single JSON line from OpenCode CLI streaming output.
+ */
+export declare function parseStreamLine(line: string): OpenCodeStreamEvent | null;
+export interface RunStreamOptions {
+    signal?: AbortSignal;
+    system?: string;
+    maxRetries?: number;
+    retryBackoffMs?: number;
+}
+export interface OpenCodeClientOptions {
+    cliPath?: string;
+    maxRetries?: number;
+    retryBackoffMs?: number;
 }
 export declare class OpenCodeClient {
-    private resolvedCliPath;
-    private explicitCliPath?;
-    constructor(cliPath?: string);
+    private resolvedPath;
+    private maxRetries;
+    private retryBackoffMs;
+    constructor(options?: OpenCodeClientOptions);
+    /** Gets the detected or configured binary path */
+    getBinaryPath(): string;
     /**
-     * Find the OpenCode CLI executable across standard install paths on Windows, macOS, and Linux.
+     * Executes `opencode models` and returns all model identifiers.
      */
-    findCliPath(): string;
+    listModels(): Promise<string[]>;
     /**
-     * Parse a raw model identifier into structured OpenCodeModel metadata.
+     * Checks if a model is categorized as free.
      */
-    parseModelId(rawId: string): OpenCodeModel;
+    isFree(modelId: string): boolean;
     /**
-     * List all models from OpenCode Desktop by executing `opencode models`.
+     * Spawns `opencode run -m <model> --format json <prompt>` and streams typed events.
      */
-    listModels(onlyFree?: boolean): Promise<OpenCodeModel[]>;
+    runStream(model: string, prompt: string, options?: RunStreamOptions): AsyncIterable<OpenCodeStreamEvent>;
     /**
-     * Run a prompt and stream JSON lines from `opencode run -m <model> --format json "<prompt>"`.
+     * Streams model output with automatic rate limit backoff and retry.
      */
-    runStream(modelId: string, prompt: string, options?: {
-        signal?: AbortSignal;
-        system?: string;
-    }): AsyncIterable<StreamEvent>;
+    runStreamWithRetry(model: string, prompt: string, options?: RunStreamOptions): AsyncIterable<OpenCodeStreamEvent>;
 }

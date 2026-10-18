@@ -1,27 +1,23 @@
+import type { Context } from '@deepseek-ai/cordis';
+import { OpenCodeClient, isFreeModel, findOpenCodeBinary, parseModelList, parseStreamLine } from './opencode-client.js';
+import { OpenCodeModelSynchronizer } from './model-sync.js';
+import { OpenCodeAdapter, assemblePrompt, extractContentText } from './adapter.js';
+export declare const name = "dsh-plugin-opencode-connect";
+export declare const inject: readonly ["llm"];
+export interface OpenCodePluginConfig {
+    /** Custom path to the opencode-cli executable */
+    cliPath?: string;
+    /** Background model sync interval in milliseconds (default: 30000ms) */
+    syncIntervalMs?: number;
+    /** Whether to only expose and sync free-tier models (default: false) */
+    freeOnly?: boolean;
+    /** Maximum retry attempts upon encountering rate limit errors (default: 3) */
+    maxRetries?: number;
+    /** Initial backoff delay in milliseconds for rate limit retries (default: 1500ms) */
+    retryBackoffMs?: number;
+}
 /**
- * DeepSeek Harness Plugin: dsh-plugin-opencode-connect
- * Connect and auto-sync OpenCode Desktop free models as LLM providers in DeepSeek Harness.
+ * Applies the OpenCode Connect plugin to the Cordis context.
  */
-import type { CordisContext, OpenCodePluginOptions } from './types.js';
-export * from './types.js';
-export * from './opencode-client.js';
-export * from './model-sync.js';
-export * from './adapter.js';
-export declare const name = "llm-opencode-connect";
-export declare const inject: string[];
-/**
- * Default plugin configuration options.
- */
-export declare const defaultConfig: OpenCodePluginOptions;
-/**
- * Cordis plugin apply method.
- * Instantiates the client, model synchronizer, and registers the OpenCode adapter
- * with DeepSeek Harness LLM runtime.
- */
-export declare function apply(ctx: CordisContext, options?: OpenCodePluginOptions): void;
-declare const _default: {
-    name: string;
-    inject: string[];
-    apply: typeof apply;
-};
-export default _default;
+export declare function apply(ctx: Context, config?: OpenCodePluginConfig): void;
+export { OpenCodeClient, OpenCodeModelSynchronizer, OpenCodeAdapter, isFreeModel, findOpenCodeBinary, parseModelList, parseStreamLine, assemblePrompt, extractContentText, };

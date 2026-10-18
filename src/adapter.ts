@@ -1,176 +1,187 @@
-import { LlmAdapter, type GenerateOptions, type LlmModelInfo, type LlmProviderInfo, type LlmResolvedModelInfo, type StreamChunk } from './types.js'
+import {
+  LlmAdapter,
+  type GenerateOptions,
+  type StreamChunk,
+  type LlmModelInfo,
+  type LlmResolvedModelInfo,
+  type LlmProviderInfo,
+  type RequestMessage,
+  type ContentBlock,
+  type TextBlock,
+  type ReasoningBlock,
+} from '@deepseek-ai/dsh-llm'
 import { OpenCodeClient } from './opencode-client.js'
 import { OpenCodeModelSynchronizer } from './model-sync.js'
+
+/**
+ * Extracts plain text from a message content block or array.
+ */
+export function extractContentText(content: unknown): string {
+  if (typeof content === 'string') {
+    return content
+  }
+
+  if (Array.isArray(content)) {
+    const texts: string[] = []
+    for (const item of content) {
+      if (!item) continue
+      if (typeof item === 'string') {
+        texts.push(item)
+      } else if (item && typeof item === 'object') {
+        const block = item as any
+        if (typeof block.text === 'string') {
+          texts.push(block.text)
+        } else if (typeof block.content === 'string') {
+          texts.push(block.content)
+        }
+      }
+    }
+    return texts.join('\n')
+  }
+
+  if (content && typeof content === 'object') {
+    const obj = content as Record<string, unknown>
+    if (typeof obj.text === 'string') return obj.text
+    if (typeof obj.content === 'string') return obj.content
+  }
+
+  return ''
+}
+
+/**
+ * Assembles a conversation history and system instructions into a single prompt for OpenCode CLI.
+ */
+export function assemblePrompt(messages: readonly RequestMessage[], system?: string): string {
+  const parts: string[] = []
+
+  if (system && system.trim()) {
+    parts.push(`System: ${system.trim()}`)
+  }
+
+  // If there's only a single user message and no separate system prompt, pass it cleanly
+  if (parts.length === 0 && messages.length === 1 && messages[0].role === 'user') {
+    return extractContentText(messages[0].content).trim()
+  }
+
+  for (const message of messages) {
+    const text = extractContentText(message.content).trim()
+    if (!text) continue
+
+    const role = message.role || 'user'
+    const roleCapitalized = role.charAt(0).toUpperCase() + role.slice(1)
+    parts.push(`${roleCapitalized}: ${text}`)
+  }
+
+  return parts.join('\n\n')
+}
 
 export class OpenCodeAdapter extends LlmAdapter {
   private client: OpenCodeClient
   private synchronizer: OpenCodeModelSynchronizer
-  private providerId: string
 
-  constructor(client: OpenCodeClient, synchronizer: OpenCodeModelSynchronizer, providerId = 'opencode') {
+  constructor(client: OpenCodeClient, synchronizer: OpenCodeModelSynchronizer) {
     super()
     this.client = client
     this.synchronizer = synchronizer
-    this.providerId = providerId
   }
 
+  /**
+   * Describes the OpenCode provider route.
+   */
   override providerInfo(provider: string): LlmProviderInfo {
     return {
-      id: provider,
-      name: 'OpenCode Desktop (Free Models)',
+      id: 'opencode',
+      name: 'OpenCode Desktop',
     }
   }
 
+  /**
+   * Lists models discovered and cached by the model synchronizer.
+   */
   override async listModels(provider: string): Promise<readonly LlmModelInfo[]> {
-    let models = this.synchronizer.getModels()
-    if (models.length === 0) {
-      models = await this.synchronizer.sync()
+    const cached = this.synchronizer.getModels()
+    if (cached.length > 0) {
+      return cached
     }
-
-    return models.map((m) => ({
-      provider,
-      id: m.id,
-      name: `${m.name} [Free]`,
-      contextWindow: m.contextWindow ?? 131072,
-      maxTokens: m.maxTokens ?? 8192,
-      inputModalities: ['text'],
-      description: `Free model hosted and accelerated via OpenCode Desktop (${m.id})`,
-    }))
+    // If cache is empty, attempt an initial refresh
+    try {
+      return await this.synchronizer.refresh()
+    } catch {
+      return []
+    }
   }
 
+  /**
+   * Resolves capabilities and metadata for a specific model.
+   */
   override async resolveModel(
     provider: string,
     model: string,
     _signal?: AbortSignal
   ): Promise<LlmResolvedModelInfo> {
-    const models = this.synchronizer.getModels()
-    const found = models.find((m) => m.id === model)
+    const info = this.synchronizer.getModel(model)
+    const displayName = info?.name ?? `OpenCode ${model}`
 
     return {
-      provider,
+      provider: 'opencode',
       id: model,
-      name: found ? `${found.name} [Free]` : model,
-      contextWindow: found?.contextWindow ?? 131072,
-      maxTokens: found?.maxTokens ?? 8192,
-      inputModalities: ['text'],
+      name: displayName,
+      description: info?.description,
+      inputModalities: info?.inputModalities ?? ['text'],
       context: {
-        contextWindow: found?.contextWindow ?? 131072,
+        contextWindow: 131072,
       },
-      defaultMaxTokens: found?.maxTokens ?? 8192,
+      defaultMaxTokens: 8192,
     }
   }
 
   /**
-   * Format conversation messages into a coherent prompt for OpenCode CLI.
+   * Dispatches model streaming inference to the OpenCode client and yields StreamChunk events.
    */
-  private formatPrompt(options: GenerateOptions): string {
-    const parts: string[] = []
-
-    if (options.system) {
-      parts.push(`[System Instructions]\n${options.system.trim()}\n`)
-    }
-
-    for (const msg of options.messages) {
-      const role = msg.role.toUpperCase()
-      let content = ''
-      if (typeof msg.content === 'string') {
-        content = msg.content
-      } else if (Array.isArray(msg.content)) {
-        content = msg.content
-          .map((c) => (typeof c.text === 'string' ? c.text : JSON.stringify(c)))
-          .join('\n')
-      }
-
-      if (role === 'SYSTEM' && !options.system) {
-        parts.push(`[System Instructions]\n${content.trim()}\n`)
-      } else {
-        parts.push(`[${role}]: ${content.trim()}`)
-      }
-    }
-
-    // If single prompt from user, send straightforward text to keep models concise
-    if (options.messages.length === 1 && options.messages[0].role === 'user' && !options.system) {
-      const msg = options.messages[0]
-      return typeof msg.content === 'string' ? msg.content : parts.join('\n\n')
-    }
-
-    return parts.join('\n\n')
-  }
-
   override async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    const prompt = this.formatPrompt(options)
-    let inReasoning = false
-    let inText = false
-    let currentReasoning = ''
-    let currentText = ''
-    let blockIndex = 0
+    const prompt = assemblePrompt(options.messages, options.system)
 
-    try {
-      for await (const event of this.client.runStream(options.model, prompt, {
-        signal: options.signal,
-        system: options.system,
-      })) {
-        if (event.type === 'error' && event.error) {
-          throw new Error(`OpenCode Error (${event.error.status || 500}): ${event.error.message || 'Unknown error'}`)
-        }
+    // Normalize model ID: ensure provider prefix is valid if required
+    let targetModel = options.model
+    if (!targetModel.startsWith('opencode/') && !targetModel.includes('/')) {
+      targetModel = `opencode/${targetModel}`
+    }
 
-        if (event.type === 'thinking_start') {
-          inReasoning = true
-          currentReasoning = ''
-          yield { type: 'block-start', index: blockIndex, blockType: 'reasoning' }
-        } else if (event.type === 'thinking_delta' && event.delta) {
-          currentReasoning += event.delta
-          yield { type: 'reasoning-delta', index: blockIndex, text: event.delta }
-        } else if (event.type === 'thinking_end') {
-          if (inReasoning) {
-            yield { type: 'block-end', index: blockIndex, block: { type: 'reasoning', text: currentReasoning } }
-            currentReasoning = ''
-            inReasoning = false
-            blockIndex++
-          }
-        } else if (event.type === 'text_start') {
-          inText = true
-          currentText = ''
-          yield { type: 'block-start', index: blockIndex, blockType: 'text' }
-        } else if (event.type === 'text_delta' && event.delta) {
-          currentText += event.delta
-          yield { type: 'text-delta', index: blockIndex, text: event.delta }
-        } else if (event.type === 'text_end') {
-          if (inText) {
-            yield { type: 'block-end', index: blockIndex, block: { type: 'text', text: currentText } }
-            currentText = ''
-            inText = false
-            blockIndex++
-          }
-        } else if (event.type === 'step_end') {
-          if (inReasoning) {
-            yield { type: 'block-end', index: blockIndex, block: { type: 'reasoning', text: currentReasoning } }
-            currentReasoning = ''
-            inReasoning = false
-            blockIndex++
-          }
-          if (inText) {
-            yield { type: 'block-end', index: blockIndex, block: { type: 'text', text: currentText } }
-            currentText = ''
-            inText = false
-            blockIndex++
-          }
-          yield { type: 'finish', reason: { kind: 'stop' } }
-        }
-      }
-    } catch (err: unknown) {
+    const eventStream = this.client.runStreamWithRetry(targetModel, prompt, {
+      signal: options.signal,
+      system: options.system,
+    })
+
+    for await (const event of eventStream) {
       if (options.signal?.aborted) {
-        yield {
-          type: 'finish',
-          reason: {
-            kind: 'aborted',
-            failure: { code: 'aborted', message: 'Request was aborted by the client' },
-          },
-        }
-        return
+        throw new Error('LLM call aborted by caller')
       }
-      throw err
+
+      if (event.type === 'thinking_delta') {
+        if (event.text) {
+          yield {
+            type: 'reasoning-delta',
+            index: 0,
+            text: event.text,
+          }
+        }
+      } else if (event.type === 'text_delta') {
+        if (event.text) {
+          yield {
+            type: 'text-delta',
+            index: 0,
+            text: event.text,
+          }
+        }
+      } else if (event.type === 'error') {
+        throw new Error(event.message || 'OpenCode execution error')
+      }
+    }
+
+    // Terminal completion event
+    yield {
+      type: 'finish',
+      reason: 'stop' as any,
     }
   }
 }
-
