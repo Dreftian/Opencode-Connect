@@ -1,16 +1,26 @@
 {
   "name": "dsh-plugin-opencode-connect",
   "version": "1.0.0",
-  "description": "Connect and auto-sync OpenCode Desktop free models as LLM providers in DeepSeek Harness",
-  "private": false,
-  "license": "MIT",
+  "description": "DeepSeek Harness adapter plugin for OpenCode Desktop and free models",
   "type": "module",
-  "main": "lib/index.js",
-  "types": "lib/index.d.ts",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
   "exports": {
     ".": {
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/opencode-client.d.ts",
+      "default": "./lib/opencode-client.js"
+    },
+    "./sync": {
+      "types": "./lib/model-sync.d.ts",
+      "default": "./lib/model-sync.js"
+    },
+    "./adapter": {
+      "types": "./lib/adapter.d.ts",
+      "default": "./lib/adapter.js"
     },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
@@ -31,7 +41,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "node --test test/**/*.test.js",
+    "test": "node --test test/*.test.js",
     "prepare": "npm run build"
   },
   "peerDependencies": {
@@ -43,6 +53,8 @@
     }
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.0",
+    "@deepseek-ai/dsh-llm": "^0.2.1-rc.2",
     "@types/node": "^22.0.0",
     "typescript": "^5.6.0"
   },
@@ -53,5 +65,6 @@
     "opencode-desktop",
     "llm",
     "free-models"
-  ]
+  ],
+  "license": "MIT"
 }

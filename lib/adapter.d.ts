@@ -15,4 +15,3 @@ export declare class OpenCodeAdapter extends LlmAdapter {
     private formatPrompt;
     stream(options: GenerateOptions): AsyncIterable<StreamChunk>;
 }
-//# sourceMappingURL=adapter.d.ts.map

@@ -30,4 +30,3 @@ export declare class OpenCodeModelSynchronizer extends EventEmitter {
      */
     stop(): void;
 }
-//# sourceMappingURL=model-sync.d.ts.map

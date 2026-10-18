@@ -352,4 +352,3 @@ export interface CordisContext {
     emit?(event: string, ...args: unknown[]): void;
     [key: string]: unknown;
 }
-//# sourceMappingURL=types.d.ts.map

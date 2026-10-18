@@ -32,4 +32,3 @@ export declare class OpenCodeClient {
         system?: string;
     }): AsyncIterable<StreamEvent>;
 }
-//# sourceMappingURL=opencode-client.d.ts.map

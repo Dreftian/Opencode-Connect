@@ -55,8 +55,8 @@ export class OpenCodeAdapter extends LlmAdapter {
       inputModalities: ['text'],
       context: {
         contextWindow: found?.contextWindow ?? 131072,
-        maxTokens: found?.maxTokens ?? 8192,
       },
+      defaultMaxTokens: found?.maxTokens ?? 8192,
     }
   }
 
@@ -101,6 +101,8 @@ export class OpenCodeAdapter extends LlmAdapter {
     const prompt = this.formatPrompt(options)
     let inReasoning = false
     let inText = false
+    let currentReasoning = ''
+    let currentText = ''
     let blockIndex = 0
 
     try {
@@ -114,46 +116,61 @@ export class OpenCodeAdapter extends LlmAdapter {
 
         if (event.type === 'thinking_start') {
           inReasoning = true
+          currentReasoning = ''
           yield { type: 'block-start', index: blockIndex, blockType: 'reasoning' }
         } else if (event.type === 'thinking_delta' && event.delta) {
+          currentReasoning += event.delta
           yield { type: 'reasoning-delta', index: blockIndex, text: event.delta }
         } else if (event.type === 'thinking_end') {
           if (inReasoning) {
-            yield { type: 'block-end', index: blockIndex, block: { type: 'reasoning' } }
+            yield { type: 'block-end', index: blockIndex, block: { type: 'reasoning', text: currentReasoning } }
+            currentReasoning = ''
             inReasoning = false
             blockIndex++
           }
         } else if (event.type === 'text_start') {
           inText = true
+          currentText = ''
           yield { type: 'block-start', index: blockIndex, blockType: 'text' }
         } else if (event.type === 'text_delta' && event.delta) {
+          currentText += event.delta
           yield { type: 'text-delta', index: blockIndex, text: event.delta }
         } else if (event.type === 'text_end') {
           if (inText) {
-            yield { type: 'block-end', index: blockIndex, block: { type: 'text' } }
+            yield { type: 'block-end', index: blockIndex, block: { type: 'text', text: currentText } }
+            currentText = ''
             inText = false
             blockIndex++
           }
         } else if (event.type === 'step_end') {
           if (inReasoning) {
-            yield { type: 'block-end', index: blockIndex, block: { type: 'reasoning' } }
+            yield { type: 'block-end', index: blockIndex, block: { type: 'reasoning', text: currentReasoning } }
+            currentReasoning = ''
             inReasoning = false
             blockIndex++
           }
           if (inText) {
-            yield { type: 'block-end', index: blockIndex, block: { type: 'text' } }
+            yield { type: 'block-end', index: blockIndex, block: { type: 'text', text: currentText } }
+            currentText = ''
             inText = false
             blockIndex++
           }
-          yield { type: 'finish', reason: 'stop' }
+          yield { type: 'finish', reason: { kind: 'stop' } }
         }
       }
     } catch (err: unknown) {
       if (options.signal?.aborted) {
-        yield { type: 'finish', reason: 'aborted' }
+        yield {
+          type: 'finish',
+          reason: {
+            kind: 'aborted',
+            failure: { code: 'aborted', message: 'Request was aborted by the client' },
+          },
+        }
         return
       }
       throw err
     }
   }
 }
+
