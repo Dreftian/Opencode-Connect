@@ -41,8 +41,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "node --test test/*.test.js",
-    "prepare": "npm run build"
+    "test": "node --test test/*.test.js"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": ">=4.0.0"
